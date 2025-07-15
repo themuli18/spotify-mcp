@@ -1,0 +1,12 @@
+name = "spotify-mcp-worker"
+main = "src/index.ts"
+compatibility_date = "2024-07-15"
+
+[durable_objects]
+bindings = [
+  { name = "SPOTIFY_SESSION", class_name = "SpotifySession" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SpotifySession"] 
