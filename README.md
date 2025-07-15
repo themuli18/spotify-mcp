@@ -248,6 +248,160 @@ console.log(`Welcome, ${profile.display_name}!`);
 - **No Secrets in Code:** Environment variables for credentials
 - **Rate Limiting:** Respects Spotify API limits
 
+## 📚 Learnings & Best Practices
+
+### MCP Server Architecture
+
+#### Durable Object Pattern
+The Spotify MCP worker uses Cloudflare's Durable Objects with the `McpAgent` pattern for reliable state management:
+
+```typescript
+// Export the agent class for Durable Object binding
+export class SpotifyMCP extends McpAgent<Env, Record<string, never>, Record<string, never>> {
+    server = new McpServer({
+        name: "Spotify MCP Server",
+        version: "1.0.0",
+    });
+
+    async init() {
+        // Register tools here
+        this.server.tool("spotify_get_playlists", {}, async () => {
+            // Tool implementation
+        });
+    }
+}
+
+// Export as McpAgent for wrangler.toml binding
+export { SpotifyMCP as McpAgent };
+```
+
+#### Wrangler Configuration
+```toml
+[[durable_objects.bindings]]
+name = "MCP_OBJECT"
+class_name = "McpAgent"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["McpAgent"]
+```
+
+### Tool Naming Convention
+MCP tools must follow the pattern `^[a-zA-Z0-9_\-]{1,64}$`:
+
+✅ **Valid tool names:**
+- `spotify_get_playlists`
+- `spotify_create_playlist`
+- `spotify_get_profile`
+
+❌ **Invalid tool names:**
+- `spotify:get-playlists` (colons not allowed)
+- `spotify-get-playlists` (hyphens in wrong position)
+
+### Deployment Lessons
+
+#### 1. Durable Object Migrations
+- Use `new_sqlite_classes` for new Durable Objects in Wrangler 4
+- Increment migration tags when making changes
+- Durable Objects persist across deployments
+
+#### 2. Module Resolution
+```json
+{
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true
+  }
+}
+```
+
+#### 3. Error Handling
+- MCP servers must handle connection cancellations gracefully
+- Implement proper session management with `mcp-session-id`
+- Log requests for debugging: `[DEBUG] Request: POST /mcp`
+
+### Testing & Validation
+
+#### Successful Deployment Indicators
+1. **Durable Object Initialization:**
+   ```
+   McpAgent._init - Ok
+   McpAgent.isInitialized - Ok
+   McpAgent.setInitialized - Ok
+   ```
+
+2. **Active Connections:**
+   ```
+   Connection [id] connected to _a:[session-id]
+   ```
+
+3. **MCP Requests:**
+   ```
+   POST /mcp?api_key=[key] - Ok
+   ```
+
+#### Common Issues & Solutions
+
+**Issue:** "Tool name doesn't match pattern"
+- **Solution:** Remove colons, use underscores
+
+**Issue:** "Durable Object binding failed"
+- **Solution:** Ensure class is exported as `McpAgent`
+
+**Issue:** "Module not found"
+- **Solution:** Update `moduleResolution` to "bundler"
+
+### Performance Optimization
+
+#### Connection Management
+- Multiple WebSocket connections per session
+- Automatic connection cleanup
+- State persistence across connections
+
+#### Memory Management
+- Durable Objects provide isolated state
+- Automatic garbage collection
+- Efficient token storage
+
+### Security Considerations
+
+#### API Key Management
+- Generate unique keys per user
+- Store securely in Durable Objects
+- Validate on every request
+
+#### OAuth Flow
+- Secure callback handling
+- Token refresh automation
+- Session isolation
+
+### Monitoring & Debugging
+
+#### Cloudflare Workers Logs
+```bash
+# View real-time logs
+npx wrangler tail
+
+# Filter by specific events
+npx wrangler tail --format pretty
+```
+
+#### Key Metrics to Monitor
+- Connection establishment rate
+- MCP request success rate
+- Durable Object initialization
+- Token refresh frequency
+
+### Reference Implementation
+
+The `math-mcp-worker` serves as a reference implementation demonstrating:
+- Proper Durable Object setup
+- Tool registration patterns
+- Error handling
+- Session management
+
+Use it as a template for new MCP servers.
+
 ## 🚨 Troubleshooting
 
 ### Common Issues
