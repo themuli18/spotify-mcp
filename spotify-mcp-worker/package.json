@@ -11,9 +11,10 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.15.1",
+    "agents": "^0.0.106",
     "zod": "^3.25.76"
   },
   "devDependencies": {

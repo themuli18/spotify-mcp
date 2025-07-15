@@ -1,4 +1,204 @@
 import { SpotifyAuth, SpotifySession, Env } from './session';
+import { McpAgent } from "agents/mcp";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
+// Define our MCP agent with Spotify tools
+export class SpotifyMCP extends McpAgent<Env, Record<string, never>, Record<string, never>> {
+    server = new McpServer({
+        name: "Spotify MCP Server",
+        version: "1.0.0",
+    });
+
+    async init() {
+        // Get playlists tool
+        this.server.tool(
+            "spotify_get_playlists",
+            {},
+            async () => {
+                const sessionStub = await this.getSessionStub();
+                const accessToken = await this.getValidAccessToken(sessionStub);
+                if (!accessToken) {
+                    return {
+                        content: [{ type: "text", text: "Authentication required. Please visit https://spotify-mcp-worker.aike-357.workers.dev/auth to authenticate with Spotify, then try again." }]
+                    };
+                }
+                const response = await fetch("https://api.spotify.com/v1/me/playlists", {
+                    headers: { "Authorization": `Bearer ${accessToken}` }
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to get playlists: ${response.statusText}`);
+                }
+                const data = await response.json();
+                return {
+                    content: [{ type: "text", text: JSON.stringify(data, null, 2) }]
+                };
+            }
+        );
+
+        // Create playlist tool
+        this.server.tool(
+            "spotify_create_playlist",
+            {
+                name: z.string().describe("Name of the playlist"),
+                description: z.string().optional().describe("Description of the playlist"),
+                public: z.boolean().optional().describe("Whether the playlist should be public")
+            },
+            async ({ name, description, public: isPublic }) => {
+                const sessionStub = await this.getSessionStub();
+                const accessToken = await this.getValidAccessToken(sessionStub);
+                if (!accessToken) {
+                    return {
+                        content: [{ type: "text", text: "Authentication required. Please visit https://spotify-mcp-worker.aike-357.workers.dev/auth to authenticate with Spotify, then try again." }]
+                    };
+                }
+                const userResponse = await fetch("https://api.spotify.com/v1/me", {
+                    headers: { "Authorization": `Bearer ${accessToken}` }
+                });
+                if (!userResponse.ok) {
+                    throw new Error(`Failed to get user profile: ${userResponse.statusText}`);
+                }
+                const user = await userResponse.json() as { id: string };
+                const response = await fetch(`https://api.spotify.com/v1/users/${user.id}/playlists`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        name,
+                        description,
+                        public: isPublic ?? false
+                    })
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to create playlist: ${response.statusText}`);
+                }
+                const playlist = await response.json();
+                return {
+                    content: [{ type: "text", text: JSON.stringify(playlist, null, 2) }]
+                };
+            }
+        );
+
+        // Get profile tool
+        this.server.tool(
+            "spotify_get_profile",
+            {},
+            async () => {
+                const sessionStub = await this.getSessionStub();
+                const accessToken = await this.getValidAccessToken(sessionStub);
+                if (!accessToken) {
+                    return {
+                        content: [{ type: "text", text: "Authentication required. Please visit https://spotify-mcp-worker.aike-357.workers.dev/auth to authenticate with Spotify, then try again." }]
+                    };
+                }
+                const response = await fetch("https://api.spotify.com/v1/me", {
+                    headers: { "Authorization": `Bearer ${accessToken}` }
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to get profile: ${response.statusText}`);
+                }
+                const profile = await response.json();
+                return {
+                    content: [{ type: "text", text: JSON.stringify(profile, null, 2) }]
+                };
+            }
+        );
+
+        // Play track tool
+        this.server.tool(
+            "spotify_play_track",
+            {
+                uri: z.string().describe("Spotify URI of the track to play"),
+                deviceId: z.string().optional().describe("Optional device ID to play on")
+            },
+            async ({ uri, deviceId }) => {
+                const sessionStub = await this.getSessionStub();
+                const accessToken = await this.getValidAccessToken(sessionStub);
+                if (!accessToken) {
+                    return {
+                        content: [{ type: "text", text: "Authentication required. Please visit https://spotify-mcp-worker.aike-357.workers.dev/auth to authenticate with Spotify, then try again." }]
+                    };
+                }
+                const endpoint = deviceId ?
+                    `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}` :
+                    'https://api.spotify.com/v1/me/player/play';
+                const response = await fetch(endpoint, {
+                    method: "PUT",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        uris: [uri]
+                    })
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to start playback: ${response.statusText}`);
+                }
+                return {
+                    content: [{ type: "text", text: "Playback started successfully" }]
+                };
+            }
+        );
+
+        // Search tool
+        this.server.tool(
+            "spotify_search",
+            {
+                query: z.string().describe("Search query"),
+                type: z.enum(["track", "artist", "album", "playlist"]).optional().describe("Type of search (default: track)"),
+                limit: z.number().optional().describe("Maximum number of results (default: 10)")
+            },
+            async ({ query, type = "track", limit = 10 }) => {
+                const sessionStub = await this.getSessionStub();
+                const accessToken = await this.getValidAccessToken(sessionStub);
+                if (!accessToken) {
+                    return {
+                        content: [{ type: "text", text: "Authentication required. Please visit https://spotify-mcp-worker.aike-357.workers.dev/auth to authenticate with Spotify, then try again." }]
+                    };
+                }
+                const params = new URLSearchParams({
+                    q: query,
+                    type,
+                    limit: String(limit)
+                });
+                const response = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
+                    headers: { "Authorization": `Bearer ${accessToken}` }
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to search: ${response.statusText}`);
+                }
+                const data = await response.json();
+                return {
+                    content: [{ type: "text", text: JSON.stringify(data, null, 2) }]
+                };
+            }
+        );
+    }
+
+    // Session and token helpers
+    private async getSessionStub(): Promise<DurableObjectStub | null> {
+        // This will be implemented to get the session from the request context
+        // For now, return null - we'll need to implement this based on the request
+        return null;
+    }
+
+    private async getValidAccessToken(sessionStub: DurableObjectStub | null): Promise<string | null> {
+        if (!sessionStub) return null;
+        
+        const response = await sessionStub.fetch(new Request('http://localhost/getValidAccessToken'));
+        if (response.ok) {
+            const data = await response.json() as { token: string | null };
+            return data.token;
+        }
+        return null;
+    }
+}
+
+// Export the class as McpAgent for Durable Object binding
+export { SpotifyMCP as McpAgent };
 
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -212,7 +412,11 @@ export default {
                                 <div id="apiKeyResult" style="margin-top: 10px; padding: 10px; background: #f0f0f0; display: none;">
                                     <strong>Your API Key:</strong>
                                     <pre id="apiKeyText"></pre>
-                                    <p>Use this in your MCP client configuration as: <code>Authorization: Bearer [API_KEY]</code></p>
+                                    <h4>Usage Options:</h4>
+                                    <p><strong>Option 1: URL Parameter (Recommended)</strong></p>
+                                    <pre id="urlParam" style="background: #e0e0e0; padding: 5px; font-size: 12px;"></pre>
+                                    <p><strong>Option 2: Authorization Header</strong></p>
+                                    <pre id="authHeader" style="background: #e0e0e0; padding: 5px; font-size: 12px;"></pre>
                                 </div>
                                 <script>
                                     async function generateApiKey() {
@@ -220,7 +424,10 @@ export default {
                                             const response = await fetch('/generate-api-key');
                                             const data = await response.json();
                                             if (data.api_key) {
-                                                document.getElementById('apiKeyText').textContent = data.api_key;
+                                                const apiKey = data.api_key;
+                                                document.getElementById('apiKeyText').textContent = apiKey;
+                                                document.getElementById('urlParam').textContent = 'https://spotify-mcp-worker.aike-357.workers.dev/mcp?api_key=' + apiKey;
+                                                document.getElementById('authHeader').textContent = 'Authorization: Bearer ' + apiKey;
                                                 document.getElementById('apiKeyResult').style.display = 'block';
                                             } else {
                                                 alert('Error: ' + data.error);
@@ -245,69 +452,12 @@ export default {
             }
         }
 
-        // HTTP MCP route
+        // MCP endpoints
+        if (url.pathname === "/sse" || url.pathname === "/sse/message") {
+            return SpotifyMCP.serveSSE("/sse").fetch(request, env, ctx);
+        }
         if (url.pathname === "/mcp") {
-            console.log(`[DEBUG] MCP request received`);
-            const method = request.method;
-            
-            // Check for Authorization header
-            const authHeader = request.headers.get("Authorization");
-            console.log(`[DEBUG] Authorization header:`, authHeader ? 'present' : 'missing');
-            
-            // Check for session cookie as fallback
-            const cookie = request.headers.get("Cookie");
-            const sessionId = cookie?.match(/session_id=([a-f0-9-]+)/)?.[1];
-            console.log(`[DEBUG] Session cookie:`, sessionId ? 'present' : 'missing');
-            
-            let sessionStub: DurableObjectStub | null = null;
-            
-            if (authHeader && authHeader.startsWith("Bearer ")) {
-                const token = authHeader.substring(7);
-                console.log(`[DEBUG] Token received:`, token.substring(0, 20) + '...');
-                
-                // Try API key authentication first
-                if (isValidUUID(token)) {
-                    console.log(`[DEBUG] Trying API key authentication`);
-                    
-                    // Convert UUID to hex string for Durable Object ID lookup
-                    const apiKeyHex = token.replace(/-/g, '').padEnd(64, '0');
-                    const doId = env.SPOTIFY_SESSION.idFromString(apiKeyHex);
-                    const apiKeyStub = env.SPOTIFY_SESSION.get(doId);
-                    
-                    const validToken = await getValidAccessToken(apiKeyStub);
-                    if (validToken) {
-                        console.log(`[DEBUG] API key authentication successful`);
-                        sessionStub = apiKeyStub;
-                    } else {
-                        console.log(`[DEBUG] API key authentication failed`);
-                    }
-                } else {
-                    // OAuth 2.1 Bearer token flow
-                    sessionStub = await validateTokenAndGetSession(token, env);
-                    if (sessionStub) {
-                        console.log(`[DEBUG] OAuth token validated successfully`);
-                    } else {
-                        console.log(`[DEBUG] OAuth token validation failed`);
-                    }
-                }
-            } else if (sessionId) {
-                // Session cookie flow (fallback)
-                console.log(`[DEBUG] Using session cookie flow`);
-                const doId = env.SPOTIFY_SESSION.idFromString(sessionId);
-                sessionStub = env.SPOTIFY_SESSION.get(doId);
-                
-                // Verify session has valid tokens
-                const validToken = await getValidAccessToken(sessionStub);
-                if (!validToken) {
-                    console.log(`[DEBUG] Session has no valid tokens`);
-                    sessionStub = null;
-                } else {
-                    console.log(`[DEBUG] Session validated successfully`);
-                }
-            }
-            
-            // Handle MCP requests (authentication not required for basic info)
-            return handleMcpRequest(request, sessionStub);
+            return SpotifyMCP.serve("/mcp").fetch(request, env, ctx);
         }
 
         // OAuth 2.1 Protected Resource Metadata endpoint
@@ -342,9 +492,222 @@ export default {
             });
         }
 
+        // Web interface for hosted Claude
+        if (url.pathname === "/web" || url.pathname === "/") {
+            return new Response(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Spotify MCP Web Interface</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+                        .section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+                        button { background: #1db954; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
+                        button:hover { background: #1ed760; }
+                        .result { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; max-height: 400px; overflow-y: auto; }
+                        input, textarea { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 3px; }
+                        .auth-notice { background: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; }
+                    </style>
+                </head>
+                <body>
+                    <h1>🎵 Spotify MCP Web Interface</h1>
+                    <p>This interface allows Claude (hosted version) to interact with your Spotify account.</p>
+                    
+                    <div class="auth-notice">
+                        <strong>Authentication Required:</strong> You need to authenticate with Spotify first.
+                        <button onclick="authenticate()">Authenticate with Spotify</button>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>🎵 Get Your Playlists</h2>
+                        <button onclick="getPlaylists()">Get My Playlists</button>
+                        <div id="playlists-result" class="result" style="display: none;"></div>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>👤 Get Your Profile</h2>
+                        <button onclick="getProfile()">Get My Profile</button>
+                        <div id="profile-result" class="result" style="display: none;"></div>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>➕ Create Playlist</h2>
+                        <input type="text" id="playlist-name" placeholder="Playlist Name" required>
+                        <textarea id="playlist-description" placeholder="Playlist Description (optional)"></textarea>
+                        <label><input type="checkbox" id="playlist-public"> Make playlist public</label><br>
+                        <button onclick="createPlaylist()">Create Playlist</button>
+                        <div id="create-result" class="result" style="display: none;"></div>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>▶️ Play Track</h2>
+                        <input type="text" id="track-uri" placeholder="Spotify Track URI (e.g., spotify:track:4iV5W9uYEdYUVa79Axb7Rh)">
+                        <input type="text" id="device-id" placeholder="Device ID (optional)">
+                        <button onclick="playTrack()">Play Track</button>
+                        <div id="play-result" class="result" style="display: none;"></div>
+                    </div>
+                    
+                    <script>
+                        const API_BASE = window.location.origin;
+                        
+                        function authenticate() {
+                            window.location.href = API_BASE + '/auth';
+                        }
+                        
+                        async function makeRequest(endpoint, method = 'GET', body = null) {
+                            try {
+                                const response = await fetch(API_BASE + endpoint, {
+                                    method,
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                    },
+                                    body: body ? JSON.stringify(body) : null
+                                });
+                                return await response.json();
+                            } catch (error) {
+                                return { error: error.message };
+                            }
+                        }
+                        
+                        async function getPlaylists() {
+                            const result = await makeRequest('/api/playlists');
+                            document.getElementById('playlists-result').innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                            document.getElementById('playlists-result').style.display = 'block';
+                        }
+                        
+                        async function getProfile() {
+                            const result = await makeRequest('/api/profile');
+                            document.getElementById('profile-result').innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                            document.getElementById('profile-result').style.display = 'block';
+                        }
+                        
+                        async function createPlaylist() {
+                            const name = document.getElementById('playlist-name').value;
+                            const description = document.getElementById('playlist-description').value;
+                            const isPublic = document.getElementById('playlist-public').checked;
+                            
+                            if (!name) {
+                                alert('Please enter a playlist name');
+                                return;
+                            }
+                            
+                            const result = await makeRequest('/api/playlists', 'POST', {
+                                name,
+                                description,
+                                public: isPublic
+                            });
+                            
+                            document.getElementById('create-result').innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                            document.getElementById('create-result').style.display = 'block';
+                        }
+                        
+                        async function playTrack() {
+                            const uri = document.getElementById('track-uri').value;
+                            const deviceId = document.getElementById('device-id').value;
+                            
+                            if (!uri) {
+                                alert('Please enter a track URI');
+                                return;
+                            }
+                            
+                            const result = await makeRequest('/api/play', 'POST', {
+                                uri,
+                                deviceId: deviceId || undefined
+                            });
+                            
+                            document.getElementById('play-result').innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                            document.getElementById('play-result').style.display = 'block';
+                        }
+                    </script>
+                </body>
+                </html>
+            `, {
+                headers: { 'Content-Type': 'text/html' }
+            });
+        }
+
+        // REST API endpoints for the web interface
+        if (url.pathname === "/api/playlists") {
+            const sessionStub = await getSessionFromCookie(request, env);
+            if (!sessionStub) {
+                return new Response(JSON.stringify({
+                    error: "Authentication required. Please visit /auth to authenticate with Spotify."
+                }), { 
+                    status: 401,
+                    headers: { 'Content-Type': 'application/json' } 
+                });
+            }
+            
+            if (request.method === "GET") {
+                return await handleGetPlaylists(sessionStub);
+            } else if (request.method === "POST") {
+                const body = await request.json();
+                return await handleCreatePlaylist(sessionStub, body);
+            }
+        }
+
+        if (url.pathname === "/api/profile") {
+            const sessionStub = await getSessionFromCookie(request, env);
+            if (!sessionStub) {
+                return new Response(JSON.stringify({
+                    error: "Authentication required. Please visit /auth to authenticate with Spotify."
+                }), { 
+                    status: 401,
+                    headers: { 'Content-Type': 'application/json' } 
+                });
+            }
+            return await handleGetProfile(sessionStub);
+        }
+
+        if (url.pathname === "/api/play") {
+            const sessionStub = await getSessionFromCookie(request, env);
+            if (!sessionStub) {
+                return new Response(JSON.stringify({
+                    error: "Authentication required. Please visit /auth to authenticate with Spotify."
+                }), { 
+                    status: 401,
+                    headers: { 'Content-Type': 'application/json' } 
+                });
+            }
+            const body = await request.json();
+            return await handlePlayTrack(sessionStub, body);
+        }
+
         // Health check endpoint
         if (url.pathname === "/health") {
             return new Response("OK", { status: 200 });
+        }
+
+        // Clear session endpoint (for debugging)
+        if (url.pathname === "/clear-session") {
+            console.log(`[DEBUG] Clear session request`);
+            
+            const apiKey = url.searchParams.get("api_key");
+            if (apiKey && isValidUUID(apiKey)) {
+                const sessionStub = await findSessionByApiKey(apiKey, env);
+                if (sessionStub) {
+                    // Clear the session by setting empty tokens
+                    await sessionStub.fetch(new Request('http://localhost/setTokens', {
+                        method: 'POST',
+                        body: JSON.stringify({})
+                    }));
+                    
+                    return new Response(JSON.stringify({
+                        success: true,
+                        message: "Session cleared successfully. Please re-authenticate with Spotify."
+                    }), {
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+            }
+            
+            return new Response(JSON.stringify({
+                success: false,
+                message: "Invalid API key or session not found"
+            }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
         }
 
         // Status endpoint for MCP clients
@@ -415,18 +778,16 @@ export default {
                     });
                 }
                 
-                // Generate API key and associate with session
+                // Generate API key and create dedicated session for it
                 const apiKey = crypto.randomUUID();
                 console.log(`[DEBUG] Generated API key:`, apiKey);
                 
-                // Convert UUID to hex string for Durable Object ID (64 hex digits)
-                const apiKeyHex = apiKey.replace(/-/g, '').padEnd(64, '0');
-                console.log(`[DEBUG] API key as hex:`, apiKeyHex);
-                
-                const apiKeyDoId = env.SPOTIFY_SESSION.idFromString(apiKeyHex);
+                // Create a new session specifically for this API key using idFromName
+                const apiKeyDoId = env.SPOTIFY_SESSION.idFromName(`api-key-${apiKey}`);
                 const apiKeyStub = env.SPOTIFY_SESSION.get(apiKeyDoId);
+                console.log(`[DEBUG] Created API key session with name:`, `api-key-${apiKey}`);
                 
-                // Copy tokens from session to API key storage
+                // Copy tokens from current session to API key session
                 const tokens = await getTokensFromSession(sessionStub);
                 console.log(`[DEBUG] Tokens retrieved:`, tokens ? 'present' : 'missing');
                 
@@ -439,13 +800,26 @@ export default {
                             expires_in: Math.floor((tokens.expiresAt - Date.now()) / 1000)
                         })
                     }));
-                    console.log(`[DEBUG] Tokens stored for API key`);
+                    
+                    // Store the API key in this session for verification
+                    await apiKeyStub.fetch(new Request('http://localhost/setApiKey', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            apiKey: apiKey
+                        })
+                    }));
+                    
+                    console.log(`[DEBUG] API key session created and tokens stored`);
                 }
                 
                 return new Response(JSON.stringify({
                     api_key: apiKey,
-                    message: "API key generated successfully. Use this key in the Authorization header as 'Bearer <api_key>' for MCP requests.",
-                    instructions: "Add this to your MCP client configuration: Authorization: Bearer " + apiKey
+                    message: "API key generated successfully. You can use this key in multiple ways for MCP requests.",
+                    instructions: {
+                        "URL Parameter (Recommended)": `https://spotify-mcp-worker.aike-357.workers.dev/mcp?api_key=${apiKey}`,
+                        "Authorization Header": `Authorization: Bearer ${apiKey}`,
+                        "Alternative URL Parameter": `https://spotify-mcp-worker.aike-357.workers.dev/mcp?key=${apiKey}`
+                    }
                 }), {
                     headers: { 'Content-Type': 'application/json' }
                 });
@@ -510,6 +884,23 @@ async function getValidAccessToken(sessionStub: DurableObjectStub): Promise<stri
     return null;
 }
 
+// Helper function to get session from cookie
+async function getSessionFromCookie(request: Request, env: Env): Promise<DurableObjectStub | null> {
+    const cookie = request.headers.get("Cookie");
+    const sessionId = cookie?.match(/session_id=([a-f0-9-]+)/)?.[1];
+    
+    if (!sessionId) {
+        return null;
+    }
+    
+    const doId = env.SPOTIFY_SESSION.idFromString(sessionId);
+    const sessionStub = env.SPOTIFY_SESSION.get(doId);
+    
+    // Verify session has valid tokens
+    const validToken = await getValidAccessToken(sessionStub);
+    return validToken ? sessionStub : null;
+}
+
 // Helper function to get tokens from session
 async function getTokensFromSession(sessionStub: DurableObjectStub): Promise<any | null> {
     try {
@@ -530,6 +921,30 @@ async function getTokensFromSession(sessionStub: DurableObjectStub): Promise<any
 function isValidUUID(str: string): boolean {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     return uuidRegex.test(str);
+}
+
+// Helper function to find session by API key
+async function findSessionByApiKey(apiKey: string, env: Env): Promise<DurableObjectStub | null> {
+    try {
+        console.log(`[DEBUG] Looking for API key session:`, `api-key-${apiKey}`);
+        
+        // Use idFromName to find the session for this API key
+        const doId = env.SPOTIFY_SESSION.idFromName(`api-key-${apiKey}`);
+        const sessionStub = env.SPOTIFY_SESSION.get(doId);
+        
+        // Check if this session has valid tokens
+        const validToken = await getValidAccessToken(sessionStub);
+        if (validToken) {
+            console.log(`[DEBUG] Found valid API key session`);
+            return sessionStub;
+        } else {
+            console.log(`[DEBUG] API key session exists but no valid tokens`);
+            return null;
+        }
+    } catch (error) {
+        console.log(`[DEBUG] Error in findSessionByApiKey:`, error);
+        return null;
+    }
 }
 
 // Token validation function for MCP authorization
@@ -592,15 +1007,18 @@ async function handleMcpRequest(request: Request, sessionStub: DurableObjectStub
     if (method === 'POST') {
         try {
             const body = await request.json() as any;
+            console.log(`[DEBUG] Request body:`, JSON.stringify(body, null, 2));
             
             // Handle JSON-RPC 2.0 requests
             if (body.jsonrpc === '2.0') {
+                console.log(`[DEBUG] Processing JSON-RPC 2.0 request:`, body.method);
                 return handleJsonRpcRequest(body, sessionStub);
             }
             
             // Legacy support for non-JSON-RPC requests
             if (body.method === 'tools/list') {
                 // Return available tools in proper MCP format
+                console.log(`[DEBUG] Legacy tools list requested, authenticated: ${!!sessionStub}`);
                 const authNotice = !sessionStub ? 
                     " Note: Authentication required - visit https://spotify-mcp-worker.aike-357.workers.dev/auth first." : 
                     "";
@@ -610,7 +1028,11 @@ async function handleMcpRequest(request: Request, sessionStub: DurableObjectStub
                         {
                             name: "spotify:get-playlists",
                             description: `Get user's playlists from Spotify.${authNotice}`,
-                            inputSchema: {}
+                            inputSchema: {
+                                type: "object",
+                                properties: {},
+                                additionalProperties: false
+                            }
                         },
                         {
                             name: "spotify:create-playlist",
@@ -618,17 +1040,31 @@ async function handleMcpRequest(request: Request, sessionStub: DurableObjectStub
                             inputSchema: {
                                 type: "object",
                                 properties: {
-                                    name: { type: "string" },
-                                    description: { type: "string" },
-                                    public: { type: "boolean" }
+                                    name: { 
+                                        type: "string",
+                                        description: "Name of the playlist"
+                                    },
+                                    description: { 
+                                        type: "string",
+                                        description: "Description of the playlist"
+                                    },
+                                    public: { 
+                                        type: "boolean",
+                                        description: "Whether the playlist should be public"
+                                    }
                                 },
-                                required: ["name"]
+                                required: ["name"],
+                                additionalProperties: false
                             }
                         },
                         {
                             name: "spotify:get-profile",
                             description: `Get user's Spotify profile.${authNotice}`,
-                            inputSchema: {}
+                            inputSchema: {
+                                type: "object",
+                                properties: {},
+                                additionalProperties: false
+                            }
                         },
                         {
                             name: "spotify:play-track",
@@ -636,10 +1072,17 @@ async function handleMcpRequest(request: Request, sessionStub: DurableObjectStub
                             inputSchema: {
                                 type: "object",
                                 properties: {
-                                    uri: { type: "string" },
-                                    deviceId: { type: "string" }
+                                    uri: { 
+                                        type: "string",
+                                        description: "Spotify URI of the track to play"
+                                    },
+                                    deviceId: { 
+                                        type: "string",
+                                        description: "Optional device ID to play on"
+                                    }
                                 },
-                                required: ["uri"]
+                                required: ["uri"],
+                                additionalProperties: false
                             }
                         }
                     ]
@@ -692,6 +1135,7 @@ async function handleMcpRequest(request: Request, sessionStub: DurableObjectStub
             });
             
         } catch (error) {
+            console.log(`[DEBUG] Error in handleMcpRequest:`, error);
             return new Response(JSON.stringify({
                 error: { message: error instanceof Error ? error.message : 'Unknown error' }
             }), { 
@@ -874,26 +1318,46 @@ async function handlePlayTrack(sessionStub: DurableObjectStub, args: any): Promi
 async function handleJsonRpcRequest(body: any, sessionStub: DurableObjectStub | null): Promise<Response> {
     const { id, method, params } = body;
     
+    console.log(`[DEBUG] JSON-RPC method:`, method, `params:`, params);
+    
+    // Handle notifications (no id field) - these don't expect responses
+    if (id === undefined) {
+        console.log(`[DEBUG] Handling notification: ${method}`);
+        if (method === 'notifications/initialized') {
+            console.log(`[DEBUG] Client initialized successfully`);
+            console.log(`[DEBUG] Client should now call tools/list to discover available tools`);
+        }
+        // Return empty response for notifications
+        return new Response('', { status: 200 });
+    }
+    
     try {
         let result: any;
         
         switch (method) {
             case 'initialize':
+                // Use the client's protocol version if it's supported
+                const clientProtocolVersion = params?.protocolVersion || "2024-11-05";
+                const supportedVersions = ["2024-11-05", "2025-06-18"];
+                const negotiatedVersion = supportedVersions.includes(clientProtocolVersion) ? clientProtocolVersion : "2024-11-05";
+                
+                console.log(`[DEBUG] Protocol version negotiation: client=${clientProtocolVersion}, negotiated=${negotiatedVersion}`);
+                
                 result = {
-                    protocolVersion: "2025-06-18",
+                    protocolVersion: negotiatedVersion,
                     capabilities: {
-                        tools: {
-                            listChanged: false
-                        }
+                        tools: {}
                     },
                     serverInfo: {
                         name: "spotify",
-                        version: "1.0.0"
+                        version: "1.0.0",
+                        description: "Spotify MCP Server with playlist management and playback control"
                     }
                 };
                 break;
                 
             case 'tools/list':
+                console.log(`[DEBUG] Tools list requested, authenticated: ${!!sessionStub}`);
                 const authNotice = !sessionStub ? 
                     " Note: Authentication required - visit https://spotify-mcp-worker.aike-357.workers.dev/auth first." : 
                     "";
@@ -915,9 +1379,18 @@ async function handleJsonRpcRequest(body: any, sessionStub: DurableObjectStub | 
                             inputSchema: {
                                 type: "object",
                                 properties: {
-                                    name: { type: "string" },
-                                    description: { type: "string" },
-                                    public: { type: "boolean" }
+                                    name: { 
+                                        type: "string",
+                                        description: "Name of the playlist"
+                                    },
+                                    description: { 
+                                        type: "string",
+                                        description: "Description of the playlist"
+                                    },
+                                    public: { 
+                                        type: "boolean",
+                                        description: "Whether the playlist should be public"
+                                    }
                                 },
                                 required: ["name"],
                                 additionalProperties: false
@@ -938,8 +1411,14 @@ async function handleJsonRpcRequest(body: any, sessionStub: DurableObjectStub | 
                             inputSchema: {
                                 type: "object",
                                 properties: {
-                                    uri: { type: "string" },
-                                    deviceId: { type: "string" }
+                                    uri: { 
+                                        type: "string",
+                                        description: "Spotify URI of the track to play"
+                                    },
+                                    deviceId: { 
+                                        type: "string",
+                                        description: "Optional device ID to play on"
+                                    }
                                 },
                                 required: ["uri"],
                                 additionalProperties: false
@@ -986,23 +1465,30 @@ async function handleJsonRpcRequest(body: any, sessionStub: DurableObjectStub | 
                 throw new Error(`Unknown method: ${method}`);
         }
         
-        return new Response(JSON.stringify({
+        const response = {
             jsonrpc: "2.0",
             id,
             result
-        }), {
+        };
+        console.log(`[DEBUG] JSON-RPC response:`, JSON.stringify(response, null, 2));
+        
+        return new Response(JSON.stringify(response), {
             headers: { 'Content-Type': 'application/json' }
         });
         
     } catch (error) {
-        return new Response(JSON.stringify({
+        console.log(`[DEBUG] JSON-RPC error:`, error);
+        const errorResponse = {
             jsonrpc: "2.0",
             id,
             error: {
                 code: -32603,
                 message: error instanceof Error ? error.message : 'Internal error'
             }
-        }), {
+        };
+        console.log(`[DEBUG] JSON-RPC error response:`, JSON.stringify(errorResponse, null, 2));
+        
+        return new Response(JSON.stringify(errorResponse), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }
         });

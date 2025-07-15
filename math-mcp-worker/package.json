@@ -1,0 +1,22 @@
+{
+  "name": "math-mcp-worker",
+  "version": "1.0.0",
+  "description": "Simple Math Calculator MCP Server",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.15.1",
+    "agents": "^0.0.106",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.0.0"
+  }
+} 

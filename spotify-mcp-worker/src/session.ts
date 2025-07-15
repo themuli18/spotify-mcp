@@ -33,6 +33,20 @@ export class SpotifySession {
             });
         }
         
+        if (url.pathname === '/setApiKey') {
+            const { apiKey } = await request.json() as { apiKey: string };
+            await this.setApiKey(apiKey);
+            return new Response('OK', { status: 200 });
+        }
+        
+        if (url.pathname === '/getApiKey') {
+            const apiKey = await this.getApiKey();
+            return new Response(JSON.stringify({ apiKey }), { 
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+        
         return new Response('Not found', { status: 404 });
     }
 
@@ -64,6 +78,16 @@ export class SpotifySession {
     // Get stored tokens
     async getTokens(): Promise<any> {
         return await this.state.storage.get("spotifyTokens");
+    }
+    
+    // Store API key
+    async setApiKey(apiKey: string) {
+        await this.state.storage.put("apiKey", apiKey);
+    }
+    
+    // Get stored API key
+    async getApiKey(): Promise<string | null> {
+        return await this.state.storage.get("apiKey");
     }
 }
 

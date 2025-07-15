@@ -1,4 +1,4 @@
-name = "spotify-mcp-worker"
+name = "math-mcp-worker"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
@@ -9,8 +9,8 @@ bindings = [
 ]
 
 [[migrations]]
-tag = "v2"
+tag = "v1"
 new_sqlite_classes = ["McpAgent"]
 
 [env.production]
-name = "spotify-mcp-worker" 
+name = "math-mcp-worker" 
