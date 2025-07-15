@@ -87,7 +87,8 @@ export class SpotifySession {
     
     // Get stored API key
     async getApiKey(): Promise<string | null> {
-        return await this.state.storage.get("apiKey");
+        const apiKey = await this.state.storage.get("apiKey") as string | null;
+        return apiKey;
     }
 }
 
@@ -96,6 +97,7 @@ export interface Env {
     SPOTIFY_CLIENT_ID: string;
     SPOTIFY_CLIENT_SECRET: string;
     SPOTIFY_SESSION: DurableObjectNamespace;
+    MCP_OBJECT: DurableObjectNamespace;
 }
 
 // SpotifyAuth class adapted for Cloudflare Workers

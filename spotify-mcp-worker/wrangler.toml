@@ -5,12 +5,13 @@ compatibility_flags = ["nodejs_compat"]
 
 [durable_objects]
 bindings = [
-  { name = "MCP_OBJECT", class_name = "McpAgent" }
+  { name = "MCP_OBJECT", class_name = "McpAgent" },
+  { name = "SPOTIFY_SESSION", class_name = "SpotifySession" }
 ]
 
 [[migrations]]
 tag = "v2"
-new_sqlite_classes = ["McpAgent"]
+new_sqlite_classes = ["McpAgent", "SpotifySession"]
 
 [env.production]
 name = "spotify-mcp-worker" 

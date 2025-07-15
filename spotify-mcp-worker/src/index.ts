@@ -180,8 +180,8 @@ export class SpotifyMCP extends McpAgent<Env, Record<string, never>, Record<stri
 
     // Session and token helpers
     private async getSessionStub(): Promise<DurableObjectStub | null> {
-        // This will be implemented to get the session from the request context
-        // For now, return null - we'll need to implement this based on the request
+        // For MCP requests, we need to get the session from the request context
+        // This will be called from the main fetch handler
         return null;
     }
 
@@ -197,8 +197,9 @@ export class SpotifyMCP extends McpAgent<Env, Record<string, never>, Record<stri
     }
 }
 
-// Export the class as McpAgent for Durable Object binding
+// Export the classes for Durable Object binding
 export { SpotifyMCP as McpAgent };
+export { SpotifySession };
 
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -871,8 +872,6 @@ export default {
         return new Response("Not found.", { status: 404 });
     }
 };
-
-export { SpotifySession };
 
 // Helper function to get valid access token from Durable Object
 async function getValidAccessToken(sessionStub: DurableObjectStub): Promise<string | null> {
